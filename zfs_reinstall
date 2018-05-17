@@ -1,0 +1,92 @@
+#!/bin/bash
+
+DEBUG=0
+REPO_URL="http://download.zfsonlinux.org/epel/zfs-release.el7_4.noarch.rpm"
+
+function die() {
+    echo "FATAL ERROR: $*" >&2
+    exit 1
+}
+
+function rm_kernel_modules() {
+    [[ $DEBUG -eq 1 ]] && set -x
+
+    local tmp1=$( mktemp )
+    
+    for path in {/usr,}/lib/modules; do
+        find $path \
+        -name "icp.ko" -or \
+        -name "splat.ko" -or \
+        -name "spl.ko" -or \
+        -name "zcommon.ko" -or \
+        -name "zpios.ko" -or \
+        -name "zavl.ko" -or \
+        -name "znvpair.ko" -or \
+        -name "zunicode.ko" | tee -a $tmp1
+    done
+    
+    echo "Removing kernel modules:"
+    cat $tmp1 | xargs -r rm -f
+    echo "OK"
+    
+    rm -f $tmp1
+}
+
+
+function yum_remove_zfs() {
+    [[ $DEBUG -eq 1 ]] && set -x
+    local tmp1=$( mktemp )
+    echo "zfs-release" >$tmp1
+#    yum list installed | egrep '^spl[.-]|^(zfs|libzfs)' | cut -d' ' -f1 > $tmp1
+    yum list installed | egrep '\@zfs' | cut -d' ' -f1 > $tmp1
+    echo "Removing zfs packages:"
+    cat $tmp1
+    set -x
+    cat $tmp1 | xargs -r yum -y remove
+    set +x
+    rm -f $tmp1
+}
+
+
+function yum_reinstall_zfs_repo() {
+    [[ $DEBUG -eq 1 ]] && set -x
+
+    find /etc/yum.repos.d -name 'zfs*' -delete
+    echo "Installing zfs repo rpm..."
+    yum -y install "$REPO_URL" || die "installing zfs repo"
+    echo "OK"
+}
+
+function yum_install_zfs() {
+    [[ $DEBUG -eq 1 ]] && set -x
+
+    echo "Installing zfs... "
+    set -x
+#    yum -y \
+#        --disablerepo=zfs \
+#        --enablerepo=zfs-kmod \
+#        reinstall $( cat $tmp1 ) || die "installing zfs"
+    yum -y install zfs || die "installing zfs"
+    set +x
+    [[ $DEBUG -eq 1 ]] && set -x
+    echo "OK"
+}
+
+set -x
+yum_remove_zfs
+
+yum autoremove
+yum clean all
+rm -rf /var/cache/yum
+
+rm_kernel_modules
+
+yum_reinstall_zfs_repo
+
+yum_install_zfs
+
+#Fix automatic pool import on system boot
+systemctl preset zfs-import-cache zfs-import-scan zfs-import.target zfs-mount zfs-share zfs-zed zfs.target
+systemctl enable zfs-import.target
+
+set +x
