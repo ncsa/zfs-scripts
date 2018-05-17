@@ -2,6 +2,7 @@
 
 DEBUG=0
 REPO_URL="http://download.zfsonlinux.org/epel/zfs-release.el7_4.noarch.rpm"
+ZFS_KERNEL_MODULES=( icp spl splat zcommon zpios zavl znvpair zunicode )
 
 function die() {
     echo "FATAL ERROR: $*" >&2
@@ -12,18 +13,12 @@ function rm_kernel_modules() {
     [[ $DEBUG -eq 1 ]] && set -x
 
     local tmp1=$( mktemp )
-    
+    local regexp="("$( echo ${ZFS_KERNEL_MODULES[*]/%/.ko} | tr ' ' '|' )")$"
+
     for path in {/usr,}/lib/modules; do
-        find $path \
-        -name "icp.ko" -or \
-        -name "splat.ko" -or \
-        -name "spl.ko" -or \
-        -name "zcommon.ko" -or \
-        -name "zpios.ko" -or \
-        -name "zavl.ko" -or \
-        -name "znvpair.ko" -or \
-        -name "zunicode.ko" | tee -a $tmp1
-    done
+        find $path -name '*.ko' -print \
+        | egrep "$regexp"
+    done | tee $tmp1
     
     echo "Removing kernel modules:"
     cat $tmp1 | xargs -r rm -f
